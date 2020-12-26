@@ -1,145 +1,216 @@
+import java.math.BigInteger;
+import java.security.SecureRandom;
+import java.util.HashSet;
+import java.util.Random;
 import java.util.Scanner;
+import java.util.Set;
 
-public class Rsa {
+public class Rsa
+{
 
-  Scanner in = new Scanner(System.in);
+  private BigInteger N, phiN, p, q, e, d;
 
-  boolean checkIsPrime(long num) {
-    if( num < 2 ) {
-      return true;
+  private static Scanner in = new Scanner(System.in);
+
+  public Rsa(int keySize)
+  {
+    if (keySize < 512)
+      throw new IllegalArgumentException("Key size too small.");
+    SecureRandom rand = new SecureRandom();
+    generatePQ(keySize / 2, rand);
+    // n = p*q
+    N = p.multiply(q);
+    // phiN = (p-1)*(q-1)
+    phiN = p.subtract(BigInteger.ONE).multiply(q.subtract(BigInteger.ONE));
+    generateExponents(invertibleSet());
+  }
+
+  private void generatePQ(int bitLength, Random rand)
+  {
+    while (true)
+    {
+      p = generateOddPrime(bitLength, rand);
+      q = generateOddPrime(bitLength, rand);
+      if (!p.equals(q))
+        return;
     }
-    long i = 2;
-    while (i <= num/2) {
-      if( num%i == 0 ) {
-        return true;
+  }
+
+  private BigInteger generateOddPrime(int bitLength, Random rand)
+  {
+    BigInteger two = new BigInteger("2");
+    while (true)
+    {
+      /*
+      Kiem tra so nguyen to:
+      Y tuong: prime % (2 -> can2(prime)) != 0;
+       */
+      BigInteger prime = BigInteger.probablePrime(bitLength, rand);
+      if (!prime.mod(two).equals(BigInteger.ZERO))
+        return prime;
+    }
+  }
+
+  private void generateExponents(BigInteger[] invertibleSet)
+  {
+    Random rand = new Random();
+    while (true)
+    {
+      // Lay ra ngau nhien 1 so tu tap so E
+      BigInteger invertible = invertibleSet[rand
+          .nextInt(invertibleSet.length)];
+      // d' = e' mod phiN
+      BigInteger inverse = invertible.modInverse(phiN);
+      // Neu d' * e' mod phiN == 1 => chon lam d, e;
+      if (invertible.multiply(inverse).mod(phiN)
+          .equals(BigInteger.ONE.mod(phiN)))
+      {
+        e = invertible;
+        d = inverse;
+        return;
       }
-      i++;
     }
-    return false;
   }
 
-  long Multiply(long num1, long num2) {
-    return num1*num2;
-  }
-
-  boolean checkCoPrime(long num1, long num2) {
-    long r, a, b;
-    if(num1 > num2) {
-      a=num1; b=num2;
-    } else {
-      a=num2; b=num1;
-    }
-    while (b != 0) {
-      r=a%b;
-      a=b; b=r;
-    }
-    return a != 1;
-  }
-
-  long findE(long phi_n) {
-    long e = 0;
-    while (e >= phi_n || e <= 1) {
-      System.out.println("Chon so e:  1 < e < phi_n = " + phi_n);
-      System.out.println("Nhap vao e nguyen to cung nhau voi phi_n: ");
-      e = Long.parseLong(in.nextLine());
-    }
-    if (checkCoPrime(phi_n, e)) {
-      System.out.println("Phi_n khong nguyen to cung nhau voi e.");
-      while (checkCoPrime(phi_n, e)) {
-        e++;
+  private BigInteger[] invertibleSet()
+  {
+    final int maxSize = 100000;
+    Set<BigInteger> invertibles = new HashSet<BigInteger>();
+    //Chon e' = 5 -> n - 1
+    BigInteger end = N.subtract(BigInteger.ONE);
+    for (BigInteger i = new BigInteger("5"); i.compareTo(end) < 0; i = i
+        .add(BigInteger.ONE))
+    {
+      // Kiem tra UCLN e' va phiN = 1 thi luu vao mang;
+      /* Y thuong tinh gcd:
+        while (a != b) {
+            if (a > b) {
+                a -= b;
+            } else {
+                b -= a;
+            }
+        };
+        return a;
+       */
+      if (i.gcd(phiN).equals(BigInteger.ONE))
+      {
+        invertibles.add(i);
+        if (invertibles.size() == maxSize)
+          break;
       }
-      System.out.println("He thong tu chon e = " + e);
     }
+    return invertibles.toArray(new BigInteger[invertibles.size()]);
+  }
+
+  public String encryptStr(String plainText)
+  {
+    BigInteger msg = new BigInteger(plainText.getBytes());
+    // cirpher = plantext^e mod n
+    /*
+    Y tuong tinh m^e mod n:
+    m %= n;
+    result = 1;
+    while (e > 0) {
+      if (e == 1) result = (result * m) % n;
+      m = (m * m) % n;
+      e--;
+    }
+    return result;
+     */
+    byte[] encrypted = msg.modPow(e, N).toByteArray();
+    return toHex(encrypted);
+  }
+
+  public String decryptStr(String cipherText)
+  {
+    BigInteger encrypted = new BigInteger(cipherText, 16);
+    // cirpher = plantext^e mod n
+    return new String(encrypted.modPow(d, N).toByteArray());
+  }
+
+  private String toHex(byte[] bytes)
+  {
+    BigInteger bi = new BigInteger(1, bytes);
+    return String.format("%0" + (bytes.length << 1) + "X", bi);
+  }
+
+  public BigInteger getPhiN() {
+    return phiN;
+  }
+
+  public BigInteger getP() {
+    return p;
+  }
+
+  public BigInteger getQ() {
+    return q;
+  }
+
+  public BigInteger getModulus()
+  {
+    return N;
+  }
+
+  public BigInteger getPublicKeyExponent()
+  {
     return e;
   }
 
-  long findD(long phi_n, long e) {
-    long a = phi_n, b = e;
-    long x1 = 0, x2 = 1, y1 = 1, y2 = 0, x, y, q, r;
-    while (b != 0) {
-      q = a/b;
-      r = a%b;
-      x = x2 - (x1 * q);
-      y = y2 - (y1 * q);
-      a = b;
-      b = r;
-      x2 = x1; x1 = x;
-      y2 = y1; y1 = y;
-    }
-    if (a != 1) {
-      System.out.println("Chon 1 so e phu hop: ");
-      e = findE(phi_n);
-      findD(phi_n, e);
-    }
-    x = x2; y = y2;
-    if( y < 0) {
-      y = phi_n + y;
-    }
-    return y;
+  public BigInteger getPrivateKeyExponent()
+  {
+    return d;
   }
 
-  long encryptOrDecrypt(long t, long e, long n) {
-    long rem;
-    long x = 1;
-    while(e!=0)
-    {
-      rem = e % 2;
-      e = e/2;
-      if (rem==1) {
-        x = (x*t)% n;
+  public static void main(String[] args)
+  {
+    System.out.println("Moi chon kich co khoa ( >= 512 byte): ");
+    int keySize = Integer.parseInt(in.nextLine());
+    Rsa cipher = new Rsa(keySize);
+    System.out.println("\nP :" + cipher.getP() + "\nQ: " + cipher.getQ());
+    System.out.println("Cap khoa Key(e,n): " + cipher.getPublicKeyExponent() + ", " + cipher.getModulus());
+    System.out.println("Cap khoa Key(d,n): " + cipher.getPrivateKeyExponent() + ", " + cipher.getModulus());
+    while (true) {
+      System.out.println("==============================");
+      System.out.println("Nhap vao 1 de ma hoa 1 so.");
+      System.out.println("Nhap vao 2 de ma hoa 1 chuoi.");
+      System.out.println("Nhap vao 3 de giai ma 1 so.");
+      System.out.println("Nhap vao 4 de giai ma 1 chuoi.");
+      System.out.println("Nhap vao 5 de thoat.");
+      System.out.println("==============================");
+      int choice;
+      choice = Integer.parseInt(in.nextLine());
+      switch (choice) {
+        case 1:
+          System.out.println("Moi nhap vao so can ma hoa: ");
+          String num = in.nextLine();
+          BigInteger encodeNum = new BigInteger(num);
+          System.out.println("So duoc ma hoa: " + encodeNum.modPow(cipher.getPublicKeyExponent(), cipher.getModulus()));
+          break;
+        case 2:
+          System.out.println("Moi nhap vao chuoi can ma hoa: ");
+          String msg = in.nextLine();
+          String cipherText = cipher.encryptStr(msg);
+          System.out.println("Chuoi sau khi duoc ma hoa dang (HEX): " + cipherText);
+          break;
+        case 3:
+          System.out.println("Moi nhap vao so de giai ma: ");
+          String num2 = in.nextLine();
+          BigInteger decodeNum = new BigInteger(num2);
+          System.out.println("So duoc ma hoa: " + decodeNum.modPow(cipher.getPrivateKeyExponent(), cipher.getModulus()));
+          break;
+        case 4:
+          System.out.println("Moi nhap vao chuoi can giai ma: ");
+          String cirpherText = in.nextLine();
+          String planText = cipher.decryptStr(cirpherText);
+          System.out.println("Ban ro: " + planText);
+          break;
+        case 5:
+          System.exit(0);
+        default:
+          System.out.println("Moi chon lai chuc nang.");
+          break;
       }
-      t = (t*t)%n;
     }
-    return x;
-  }
-
-  void encDecNum(long n1, long n2) {
-    long pn;
-    System.out.println("Nhap vao 1 so nguyen: ");
-    pn = Long.parseLong(in.nextLine());
-    System.out.println(encryptOrDecrypt(pn, n1, n2));
-  }
-
-  void encDecStr(long e, long n) {
-    String str;
-    StringBuilder str1 = new StringBuilder();
-    System.out.println("Nhap vao mot chuoi bat ky: ");
-    str = in.nextLine();
-    for (int i = 0; i < str.length(); i++) {
-      long temp = encryptOrDecrypt(str.charAt(i), e, n);
-      str1.append((char) temp);
-    }
-    System.out.println("Ban ma dang string: " + str1);
-    System.out.print("Ban ma dang ASCII: ");
-    for(int i=0; i<str1.length(); i++)
-    {
-      int asciiValue = str1.charAt(i);
-      System.out.print(asciiValue);
-    }
-    System.out.println("");
-  }
-
-  KeyRsa generateKey() {
-    KeyRsa keyRsa = new KeyRsa();
-    while (checkIsPrime(keyRsa.getP())) {
-      System.out.println("Moi nhap 1 so nguyen to (p):");
-      long p = Long.parseLong(in.nextLine());
-      keyRsa.setP(p);
-    }
-    while (checkIsPrime(keyRsa.getQ())) {
-      System.out.println("Moi nhap 1 so nguyen to (q):");
-      long q = Long.parseLong(in.nextLine());
-      keyRsa.setQ(q);
-    }
-    keyRsa.setN(Multiply(keyRsa.getP(), keyRsa.getQ()));
-    System.out.println("Gia tri n: " + keyRsa.getN());
-    keyRsa.setPhi_n(Multiply(keyRsa.getP() - 1, keyRsa.getQ() -1));
-    System.out.println("Gia tri phi_n: " + keyRsa.getPhi_n());
-    keyRsa.setE(findE(keyRsa.getPhi_n()));
-    keyRsa.setD(findD(keyRsa.getPhi_n(), keyRsa.getE()));
-    System.out.println("Gia tri Publickey(e,n): " + keyRsa.getE() + "," + keyRsa.getN());
-    System.out.println("Gia tri PrivateKey(d,n): " + keyRsa.getD() + "," + keyRsa.getN());
-    return keyRsa;
   }
 
 }
